@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNotifications } from "../contexts/NotificationContext";
 import { logAudit } from "../lib/audit";
 
-const EMPTY_FORM = { amount: "", type: "", category_id: "", allocation_id: "", notes: "", reference: "" };
+const EMPTY_FORM = { amount: "", type: "", category_id: "", allocation_id: "", person_id: "", notes: "", reference: "" };
 
 export default function TransactionEntry({ navigate }) {
   const { user, profile } = useAuth();
@@ -13,20 +13,40 @@ export default function TransactionEntry({ navigate }) {
   const [errors, setErrors] = useState({});
   const [categories, setCategories] = useState([]);
   const [allocations, setAllocations] = useState([]);
+  const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(null);
+  const [showAddPerson, setShowAddPerson] = useState(false);
+  const [newPersonName, setNewPersonName] = useState("");
+  const [addingPerson, setAddingPerson] = useState(false);
 
   useEffect(() => {
-    async function loadDropdowns() {
-      const [{ data: cats }, { data: allocs }] = await Promise.all([
-        supabase.from("categories").select("id, name").eq("is_active", true).order("name"),
-        supabase.from("allocations").select("id, name").eq("is_active", true).order("name"),
-      ]);
-      setCategories(cats || []);
-      setAllocations(allocs || []);
-    }
     loadDropdowns();
   }, []);
+
+  async function loadDropdowns() {
+    const [{ data: cats }, { data: allocs }, { data: ppl }] = await Promise.all([
+      supabase.from("categories").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("allocations").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("people").select("id, name").eq("is_active", true).order("name"),
+    ]);
+    setCategories(cats || []);
+    setAllocations(allocs || []);
+    setPeople(ppl || []);
+  }
+
+  async function addNewPerson() {
+    if (!newPersonName.trim()) return;
+    setAddingPerson(true);
+    const { data, error } = await supabase.from("people").insert({ name: newPersonName.trim(), created_by: user.id }).select().single();
+    if (!error && data) {
+      setPeople(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm(prev => ({ ...prev, person_id: data.id }));
+      setNewPersonName("");
+      setShowAddPerson(false);
+    }
+    setAddingPerson(false);
+  }
 
   function validate() {
     const e = {};
@@ -34,6 +54,7 @@ export default function TransactionEntry({ navigate }) {
     if (!form.type) e.type = "Please select a transaction type";
     if (!form.category_id) e.category_id = "Please select a category";
     if (!form.allocation_id) e.allocation_id = "Please select an allocation";
+    if (!form.person_id) e.person_id = "Please select a payee/payer";
     if (!form.notes.trim()) e.notes = "Notes are required";
     return e;
   }
@@ -53,20 +74,19 @@ export default function TransactionEntry({ navigate }) {
         category_id: form.category_id,
         allocation_id: form.allocation_id,
         person_responsible_id: user.id,
+        person_id: form.person_id,
         notes: form.notes.trim(),
         reference: form.reference.trim() || null,
       };
 
-      const { data, error } = await supabase.from("transactions").insert(payload).select("*, categories(name), allocations(name)").single();
+      const { data, error } = await supabase.from("transactions").insert(payload).select("*, categories(name), allocations(name), people(name)").single();
       if (error) throw error;
 
-      // Audit log
       await logAudit({ userId: user.id, action: "create", entityId: data.id, transactionRef: data.transaction_id, afterValues: payload });
 
-      // In-app notification
       await createNotification({
         title: "Transaction Created",
-        message: `${data.transaction_id} — ${data.type === "cash_in" ? "Cash In" : "Cash Out"} ₱${Number(data.amount).toLocaleString()} recorded by ${profile?.full_name}`,
+        message: `${data.transaction_id} — ${data.type === "cash_in" ? "Cash In" : "Cash Out"} ₱${Number(data.amount).toLocaleString()} by ${profile?.full_name}`,
         type: "success",
         roleTarget: "all",
         relatedTransactionId: data.id,
@@ -138,6 +158,32 @@ export default function TransactionEntry({ navigate }) {
               {errors.amount && <span className="field-error">{errors.amount}</span>}
             </div>
 
+            {/* Payee/Payer */}
+            <div className="field-group">
+              <label>{form.type === "cash_in" ? "Received From *" : form.type === "cash_out" ? "Paid To *" : "Payee / Payer *"}</label>
+              <div className="inline-form">
+                <select value={form.person_id} onChange={e => set("person_id", e.target.value)}
+                  className={errors.person_id ? "input-error" : ""}>
+                  <option value="">Select person...</option>
+                  {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <button type="button" className="btn-secondary" onClick={() => setShowAddPerson(!showAddPerson)}>
+                  + New
+                </button>
+              </div>
+              {errors.person_id && <span className="field-error">{errors.person_id}</span>}
+              {showAddPerson && (
+                <div className="inline-form" style={{ marginTop: "0.5rem" }}>
+                  <input placeholder="Enter person name..." value={newPersonName}
+                    onChange={e => setNewPersonName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addNewPerson()} />
+                  <button type="button" className="btn-primary" onClick={addNewPerson} disabled={addingPerson}>
+                    {addingPerson ? "..." : "Add"}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Category */}
             <div className="field-group">
               <label>Category *</label>
@@ -178,7 +224,7 @@ export default function TransactionEntry({ navigate }) {
 
             {/* Person Responsible (read-only) */}
             <div className="field-group">
-              <label>Person Responsible</label>
+              <label>Encoded By</label>
               <input type="text" value={profile?.full_name || "Loading..."} disabled className="input-readonly" />
               <span className="field-hint">Auto-assigned from your account</span>
             </div>
