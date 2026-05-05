@@ -214,7 +214,7 @@ a:hover { text-decoration: underline; }
 .notes-cell { max-width: 200px; }
 
 .txn-id {
-  font-family: 'Syne', sans-serif; font-size: 0.8rem; font-weight: 700;
+  font-family: 'DM Sans', sans-serif; font-size: 0.875rem; font-weight: 400;
   color: var(--text); white-space: nowrap;
 }
 
