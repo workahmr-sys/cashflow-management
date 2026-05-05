@@ -10,6 +10,7 @@ import AuditLog from "./pages/AuditLog";
 import UserManagement from "./pages/UserManagement";
 import AllocationManager from "./pages/AllocationManager";
 import CategoryManager from "./pages/CategoryManager";
+import PeopleManager from "./pages/PeopleManager";
 import DailySummary from "./pages/DailySummary";
 import Settings from "./pages/Settings";
 import Layout from "./components/Layout";
@@ -37,6 +38,7 @@ function AppInner() {
     users: <UserManagement />,
     allocations: <AllocationManager />,
     categories: <CategoryManager />,
+    people: <PeopleManager />,
     "daily-summary": <DailySummary />,
     settings: <Settings />,
   };
