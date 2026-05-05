@@ -32,7 +32,7 @@ export default function TransactionList() {
     setLoading(true);
     let q = supabase
       .from("transactions")
-      .select("*, categories(name), allocations(name), profiles(full_name), people(name)")
+      .select("*, categories(name), allocations(name), profiles!transactions_person_responsible_id_fkey(full_name), people(name)")
       .eq("is_deleted", false)
       .order("date_time", { ascending: false });
 
