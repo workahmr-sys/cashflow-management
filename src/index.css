@@ -215,8 +215,7 @@ a:hover { text-decoration: underline; }
 
 .txn-id {
   font-family: 'Syne', sans-serif; font-size: 0.8rem; font-weight: 700;
-  background: var(--bg-card2); padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-sm); color: var(--accent); white-space: nowrap;
+  color: var(--text); white-space: nowrap;
 }
 
 .type-badge {
