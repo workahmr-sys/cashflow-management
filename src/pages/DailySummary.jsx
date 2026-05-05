@@ -15,9 +15,7 @@ export default function DailySummary() {
   const [pastSummaries, setPastSummaries] = useState([]);
   const [telegramStatus, setTelegramStatus] = useState(null);
 
-  useEffect(() => {
-    loadPastSummaries();
-  }, []);
+  useEffect(() => { loadPastSummaries(); }, []);
 
   async function loadPastSummaries() {
     const { data } = await supabase.from("daily_summaries").select("*").order("summary_date", { ascending: false }).limit(10);
@@ -43,6 +41,7 @@ export default function DailySummary() {
       const cashIn = txns?.filter(t => t.type === "cash_in").reduce((s, t) => s + Number(t.amount), 0) || 0;
       const cashOut = txns?.filter(t => t.type === "cash_out").reduce((s, t) => s + Number(t.amount), 0) || 0;
       const netBalance = cashIn - cashOut;
+      const count = txns?.length || 0;
 
       // Breakdown by allocation
       const breakdown = {};
@@ -53,7 +52,7 @@ export default function DailySummary() {
         else breakdown[name].out += Number(t.amount);
       });
 
-      const summaryData = { date: selectedDate, cashIn, cashOut, netBalance, breakdown, count: txns?.length || 0 };
+      const summaryData = { date: selectedDate, cashIn, cashOut, netBalance, count, breakdown };
       setSummary(summaryData);
 
       // Save to DB
@@ -75,7 +74,7 @@ export default function DailySummary() {
       });
 
       // Telegram
-      const tgMsg = buildDailySummaryMessage({ date: selectedDate, cashIn, cashOut, netBalance, breakdown });
+      const tgMsg = buildDailySummaryMessage({ date: selectedDate, cashIn, cashOut, netBalance, count });
       const tgResult = await sendTelegramMessage(tgMsg);
       setTelegramStatus(tgResult);
 
@@ -148,7 +147,7 @@ export default function DailySummary() {
 
             {telegramStatus && (
               <div className={`telegram-status ${telegramStatus.success ? "tg-success" : "tg-fail"}`}>
-                {telegramStatus.success ? "✅ Telegram notification sent!" : `⚠️ Telegram not sent: ${telegramStatus.reason || "Not configured"}`}
+                {telegramStatus.success ? "✅ Telegram notification sent!" : `⚠️ Telegram: ${telegramStatus.reason || "Not configured"}`}
               </div>
             )}
           </div>
@@ -160,16 +159,17 @@ export default function DailySummary() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>Date</th><th>Cash In</th><th>Cash Out</th><th>Net</th><th>Telegram</th><th>Generated</th></tr>
+              <tr><th>Date</th><th>Cash In</th><th>Cash Out</th><th>Net</th><th>Transactions</th><th>Telegram</th><th>Generated</th></tr>
             </thead>
             <tbody>
-              {pastSummaries.length === 0 && <tr><td colSpan={6} className="empty-row">No summaries yet</td></tr>}
+              {pastSummaries.length === 0 && <tr><td colSpan={7} className="empty-row">No summaries yet</td></tr>}
               {pastSummaries.map(s => (
                 <tr key={s.id}>
                   <td>{s.summary_date}</td>
                   <td className="amount-in">+{fmt(s.total_cash_in)}</td>
                   <td className="amount-out">-{fmt(s.total_cash_out)}</td>
                   <td className={s.net_balance >= 0 ? "amount-in" : "amount-out"}>{fmt(s.net_balance)}</td>
+                  <td>{s.allocation_breakdown ? Object.values(s.allocation_breakdown).reduce((sum, a) => sum + (a.in > 0 || a.out > 0 ? 1 : 0), 0) : "—"}</td>
                   <td>{s.telegram_sent ? "✅ Sent" : <span className="muted">—</span>}</td>
                   <td>{new Date(s.created_at).toLocaleString("en-PH")}</td>
                 </tr>
