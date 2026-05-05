@@ -548,6 +548,14 @@ code {
 .toggle-label { font-size: 0.875rem; color: var(--text); cursor: pointer; }
 
 /* ============================================================
+   VOID & BEGINNING BALANCE
+   ============================================================ */
+.row-void td { opacity: 0.5; }
+.badge-void { background: rgba(107,114,128,0.2); color: #6b7280; }
+.bb-row td { background: rgba(59,130,246,0.05); border-bottom: 2px solid var(--border); }
+.bb-id { font-family: 'DM Sans', sans-serif; font-size: 0.875rem; font-weight: 700; color: var(--accent); }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {
