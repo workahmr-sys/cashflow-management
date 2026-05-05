@@ -7,7 +7,7 @@ import { logAudit } from "../lib/audit";
 const fmt = (n) => `₱${Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 
 export default function TransactionList() {
-  const { user, profile, isAdmin } = useAuth();
+  const { user, profile, isAdmin, isEncoder } = useAuth();
   const { createNotification } = useNotifications();
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -173,7 +173,7 @@ export default function TransactionList() {
                   <td className="notes-cell" title={t.notes}>{t.notes.length > 30 ? t.notes.slice(0, 30) + "…" : t.notes}</td>
                   <td>{t.reference || <span className="muted">—</span>}</td>
                   <td className="muted">{t.profiles?.full_name}</td>
-                  {isAdmin && (
+                  {(isAdmin || isEncoder) && (
                     <td>
                       <div className="action-btns">
                         <button className="action-edit" onClick={() => setEditModal({ ...t, category_id: t.category_id, allocation_id: t.allocation_id, person_id: t.person_id })}>✏️</button>
