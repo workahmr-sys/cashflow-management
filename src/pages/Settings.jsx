@@ -1,11 +1,26 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { sendTelegramMessage } from "../lib/telegram";
+
+async function sendTelegramDirect(token, chatId, message) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" }),
+    });
+    const result = await res.json();
+    return { success: result.ok, data: result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
 
 export default function Settings() {
   const { user } = useAuth();
-  const [settings, setSettings] = useState({ telegram_bot_token: "", telegram_chat_id: "", telegram_enabled: "false" });
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -16,9 +31,11 @@ export default function Settings() {
     async function load() {
       const { data } = await supabase.from("system_settings").select("key, value");
       if (data) {
-        const map = {};
-        data.forEach(row => { map[row.key] = row.value || ""; });
-        setSettings(s => ({ ...s, ...map }));
+        data.forEach(row => {
+          if (row.key === "telegram_bot_token") setBotToken(row.value || "");
+          if (row.key === "telegram_chat_id") setChatId(row.value || "");
+          if (row.key === "telegram_enabled") setEnabled(row.value === "true");
+        });
       }
       setLoading(false);
     }
@@ -27,22 +44,25 @@ export default function Settings() {
 
   async function save() {
     setSaving(true); setSaved(false);
-    const updates = Object.entries(settings).map(([key, value]) =>
-      supabase.from("system_settings").update({ value, updated_by: user.id, updated_at: new Date().toISOString() }).eq("key", key)
-    );
-    await Promise.all(updates);
+    await Promise.all([
+      supabase.from("system_settings").update({ value: botToken, updated_by: user.id, updated_at: new Date().toISOString() }).eq("key", "telegram_bot_token"),
+      supabase.from("system_settings").update({ value: chatId, updated_by: user.id, updated_at: new Date().toISOString() }).eq("key", "telegram_chat_id"),
+      supabase.from("system_settings").update({ value: enabled ? "true" : "false", updated_by: user.id, updated_at: new Date().toISOString() }).eq("key", "telegram_enabled"),
+    ]);
     setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
   async function testTelegram() {
+    if (!botToken || !chatId) {
+      setTestResult({ success: false, reason: "Please enter Bot Token and Chat ID first" });
+      return;
+    }
     setTesting(true); setTestResult(null);
-    const result = await sendTelegramMessage("🔔 <b>CashFlow System</b>\n\nTelegram integration is working! ✅");
+    const result = await sendTelegramDirect(botToken, chatId, "🔔 <b>CashFlow System</b>\n\nTelegram integration is working! ✅");
     setTestResult(result);
     setTesting(false);
   }
-
-  function set(key, value) { setSettings(p => ({ ...p, [key]: value })); }
 
   if (loading) return <div className="page"><div className="loading-text">Loading settings...</div></div>;
 
@@ -50,7 +70,7 @@ export default function Settings() {
     <div className="page">
       <div className="section">
         <h3>🤖 Telegram Integration</h3>
-        <p className="subtitle">Configure Telegram notifications for daily summaries and alerts.</p>
+        <p className="subtitle">Configure Telegram notifications for daily summaries.</p>
 
         <div className="settings-steps">
           <div className="step-card">
@@ -64,47 +84,58 @@ export default function Settings() {
             <div className="step-number">2</div>
             <div>
               <strong>Get your Chat ID</strong>
-              <p>Add your bot to a group, or message it directly. Then visit: <code>https://api.telegram.org/bot[TOKEN]/getUpdates</code> to find your chat_id.</p>
+              <p>Add your bot to a group, send a message, then visit: <code>https://api.telegram.org/bot[TOKEN]/getUpdates</code> to find your chat_id.</p>
             </div>
           </div>
           <div className="step-card">
             <div className="step-number">3</div>
-            <div>
-              <strong>Enter credentials below and test</strong>
-            </div>
+            <div><strong>Enter credentials below and test</strong></div>
           </div>
         </div>
 
         <div className="form-card">
           <div className="field-group">
             <label>Bot Token</label>
-            <input type="password" placeholder="123456789:ABCdefGHI..." value={settings.telegram_bot_token}
-              onChange={e => set("telegram_bot_token", e.target.value)} />
+            <input
+              type="text"
+              placeholder="123456789:ABCdefGHI..."
+              value={botToken}
+              onChange={e => setBotToken(e.target.value)}
+            />
           </div>
           <div className="field-group">
             <label>Chat ID</label>
-            <input placeholder="-1001234567890 or 987654321" value={settings.telegram_chat_id}
-              onChange={e => set("telegram_chat_id", e.target.value)} />
+            <input
+              placeholder="-1001234567890 or 987654321"
+              value={chatId}
+              onChange={e => setChatId(e.target.value)}
+            />
           </div>
           <div className="field-group">
             <label>Enable Telegram Notifications</label>
             <div className="toggle-row">
-              <input type="checkbox" id="tg-enabled" checked={settings.telegram_enabled === "true"}
-                onChange={e => set("telegram_enabled", e.target.checked ? "true" : "false")} />
+              <input
+                type="checkbox"
+                id="tg-enabled"
+                checked={enabled}
+                onChange={e => setEnabled(e.target.checked)}
+              />
               <label htmlFor="tg-enabled" className="toggle-label">
-                {settings.telegram_enabled === "true" ? "Enabled" : "Disabled"}
+                {enabled ? "✅ Enabled" : "Disabled"}
               </label>
             </div>
           </div>
 
           {testResult && (
             <div className={`telegram-status ${testResult.success ? "tg-success" : "tg-fail"}`}>
-              {testResult.success ? "✅ Test message sent successfully!" : `❌ Failed: ${testResult.reason || testResult.error || "Unknown error"}`}
+              {testResult.success
+                ? "✅ Test message sent successfully! Check your Telegram group."
+                : `❌ Failed: ${testResult.reason || testResult.error || "Unknown error"}`}
             </div>
           )}
 
           <div className="form-actions">
-            <button className="btn-secondary" onClick={testTelegram} disabled={testing || !settings.telegram_bot_token || !settings.telegram_chat_id}>
+            <button className="btn-secondary" onClick={testTelegram} disabled={testing}>
               {testing ? "Sending..." : "🧪 Test Connection"}
             </button>
             <button className="btn-primary" onClick={save} disabled={saving}>
