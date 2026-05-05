@@ -2,12 +2,27 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useNotifications } from "../contexts/NotificationContext";
-import { sendTelegramMessage, buildDailySummaryMessage } from "../lib/telegram";
+import { sendTelegramMessage } from "../lib/telegram";
 
 const fmt = (n) => `₱${Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 
+function buildSummaryMessage({ date, openingBalance, cashIn, cashOut, endingBalance, count }) {
+  const d = new Date(date).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" });
+  const netIcon = endingBalance >= openingBalance ? "💰" : "📉";
+
+  return `📅 ${d}
+
+💰 Opening Balance:  ${fmt(openingBalance)}
+💚 Cash In:          ${fmt(cashIn)}
+❤️ Cash Out:         ${fmt(cashOut)}
+─────────────────────────────
+${netIcon} Ending Balance:  ${fmt(endingBalance)}
+
+📦 Transactions: ${count}`;
+}
+
 export default function DailySummary() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { createNotification } = useNotifications();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [generating, setGenerating] = useState(false);
@@ -31,16 +46,37 @@ export default function DailySummary() {
       const start = `${selectedDate}T00:00:00`;
       const end = `${selectedDate}T23:59:59`;
 
+      // Get beginning balance
+      const { data: bb } = await supabase.from("beginning_balance").select("amount, balance_date").order("balance_date").limit(1).single();
+      const bbAmount = bb?.amount || 0;
+      const bbDate = bb?.balance_date || selectedDate;
+
+      // Get all transactions BEFORE selected date (for opening balance)
+      const { data: prevTxns } = await supabase
+        .from("transactions")
+        .select("amount, type")
+        .eq("is_deleted", false)
+        .eq("is_void", false)
+        .lt("date_time", start)
+        .neq("transaction_id", "BB0001");
+
+      const prevIn = prevTxns?.filter(t => t.type === "cash_in").reduce((s, t) => s + Number(t.amount), 0) || 0;
+      const prevOut = prevTxns?.filter(t => t.type === "cash_out").reduce((s, t) => s + Number(t.amount), 0) || 0;
+      const openingBalance = bbAmount + prevIn - prevOut;
+
+      // Get transactions FOR selected date
       const { data: txns } = await supabase
         .from("transactions")
         .select("amount, type, allocation_id, allocations(name)")
         .eq("is_deleted", false)
+        .eq("is_void", false)
         .gte("date_time", start)
-        .lte("date_time", end);
+        .lte("date_time", end)
+        .neq("transaction_id", "BB0001");
 
       const cashIn = txns?.filter(t => t.type === "cash_in").reduce((s, t) => s + Number(t.amount), 0) || 0;
       const cashOut = txns?.filter(t => t.type === "cash_out").reduce((s, t) => s + Number(t.amount), 0) || 0;
-      const netBalance = cashIn - cashOut;
+      const endingBalance = openingBalance + cashIn - cashOut;
       const count = txns?.length || 0;
 
       // Breakdown by allocation
@@ -52,7 +88,7 @@ export default function DailySummary() {
         else breakdown[name].out += Number(t.amount);
       });
 
-      const summaryData = { date: selectedDate, cashIn, cashOut, netBalance, count, breakdown };
+      const summaryData = { date: selectedDate, openingBalance, cashIn, cashOut, endingBalance, count, breakdown };
       setSummary(summaryData);
 
       // Save to DB
@@ -60,7 +96,7 @@ export default function DailySummary() {
         summary_date: selectedDate,
         total_cash_in: cashIn,
         total_cash_out: cashOut,
-        net_balance: netBalance,
+        net_balance: endingBalance,
         allocation_breakdown: breakdown,
         triggered_by: user.id,
       }).select().single();
@@ -68,13 +104,13 @@ export default function DailySummary() {
       // In-app notification
       await createNotification({
         title: "Daily Summary Generated",
-        message: `Summary for ${selectedDate}: In ${fmt(cashIn)} / Out ${fmt(cashOut)} / Net ${fmt(netBalance)}`,
+        message: `Summary for ${selectedDate}: Opening ${fmt(openingBalance)} → Ending ${fmt(endingBalance)}`,
         type: "info",
         roleTarget: "all",
       });
 
       // Telegram
-      const tgMsg = buildDailySummaryMessage({ date: selectedDate, cashIn, cashOut, netBalance, count });
+      const tgMsg = buildSummaryMessage({ date: selectedDate, openingBalance, cashIn, cashOut, endingBalance, count });
       const tgResult = await sendTelegramMessage(tgMsg);
       setTelegramStatus(tgResult);
 
@@ -108,6 +144,10 @@ export default function DailySummary() {
           <div className="summary-result">
             <h4>Summary for {summary.date}</h4>
             <div className="summary-stats">
+              <div className="summary-stat-card stat-count">
+                <div className="stat-label">Opening Balance</div>
+                <div className="stat-value">{fmt(summary.openingBalance)}</div>
+              </div>
               <div className="summary-stat-card stat-in">
                 <div className="stat-label">Cash In</div>
                 <div className="stat-value">{fmt(summary.cashIn)}</div>
@@ -116,13 +156,9 @@ export default function DailySummary() {
                 <div className="stat-label">Cash Out</div>
                 <div className="stat-value">{fmt(summary.cashOut)}</div>
               </div>
-              <div className={`summary-stat-card ${summary.netBalance >= 0 ? "stat-positive" : "stat-negative"}`}>
-                <div className="stat-label">Net Balance</div>
-                <div className="stat-value">{fmt(summary.netBalance)}</div>
-              </div>
-              <div className="summary-stat-card stat-count">
-                <div className="stat-label">Transactions</div>
-                <div className="stat-value">{summary.count}</div>
+              <div className={`summary-stat-card ${summary.endingBalance >= summary.openingBalance ? "stat-positive" : "stat-negative"}`}>
+                <div className="stat-label">Ending Balance</div>
+                <div className="stat-value">{fmt(summary.endingBalance)}</div>
               </div>
             </div>
 
@@ -159,7 +195,7 @@ export default function DailySummary() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>Date</th><th>Cash In</th><th>Cash Out</th><th>Net</th><th>Transactions</th><th>Telegram</th><th>Generated</th></tr>
+              <tr><th>Date</th><th>Cash In</th><th>Cash Out</th><th>Ending Balance</th><th>Transactions</th><th>Telegram</th><th>Generated</th></tr>
             </thead>
             <tbody>
               {pastSummaries.length === 0 && <tr><td colSpan={7} className="empty-row">No summaries yet</td></tr>}
@@ -169,7 +205,7 @@ export default function DailySummary() {
                   <td className="amount-in">+{fmt(s.total_cash_in)}</td>
                   <td className="amount-out">-{fmt(s.total_cash_out)}</td>
                   <td className={s.net_balance >= 0 ? "amount-in" : "amount-out"}>{fmt(s.net_balance)}</td>
-                  <td>{s.allocation_breakdown ? Object.values(s.allocation_breakdown).reduce((sum, a) => sum + (a.in > 0 || a.out > 0 ? 1 : 0), 0) : "—"}</td>
+                  <td>{s.allocation_breakdown ? Object.keys(s.allocation_breakdown).length : "—"}</td>
                   <td>{s.telegram_sent ? "✅ Sent" : <span className="muted">—</span>}</td>
                   <td>{new Date(s.created_at).toLocaleString("en-PH")}</td>
                 </tr>
