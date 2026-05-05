@@ -5,7 +5,7 @@ import { useNotifications } from "../contexts/NotificationContext";
 import { logAudit } from "../lib/audit";
 import { sendTelegramMessage, buildTransactionMessage } from "../lib/telegram";
 
-const EMPTY_FORM = { amount: "", type: "", category_id: "", allocation_id: "", person_id: "", notes: "", reference: "" };
+const EMPTY_FORM = { amount: "", type: "", category_id: "", allocation_id: "", person_id: "", notes: "", reference: "", date_time: new Date().toISOString().slice(0, 16) };
 
 export default function TransactionEntry({ navigate }) {
   const { user, profile } = useAuth();
@@ -78,6 +78,7 @@ export default function TransactionEntry({ navigate }) {
         person_id: form.person_id,
         notes: form.notes.trim(),
         reference: form.reference.trim() || null,
+        date_time: form.date_time || new Date().toISOString(),
       };
 
       const { data, error } = await supabase
@@ -246,6 +247,17 @@ export default function TransactionEntry({ navigate }) {
               <label>Reference <span className="optional">(optional)</span></label>
               <input type="text" placeholder="Receipt no., OR number, invoice..."
                 value={form.reference} onChange={e => set("reference", e.target.value)} />
+            </div>
+
+            {/* Date & Time */}
+            <div className="field-group">
+              <label>Date & Time *</label>
+              <input
+                type="datetime-local"
+                value={form.date_time}
+                onChange={e => set("date_time", e.target.value)}
+              />
+              <span className="field-hint">Defaults to now. Change if recording a past transaction.</span>
             </div>
 
             {/* Encoded By (read-only) */}
