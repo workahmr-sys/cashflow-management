@@ -12,26 +12,38 @@ export default function TransactionList() {
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
   const [allocations, setAllocations] = useState([]);
+  const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editModal, setEditModal] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  // Filters
-  const [filters, setFilters] = useState({ search: "", type: "", category_id: "", allocation_id: "", date_from: "", date_to: "" });
+  const [filters, setFilters] = useState({
+    search: "",
+    notes_search: "",
+    person_id: "",
+    type: "",
+    category_id: "",
+    allocation_id: "",
+    date_from: "",
+    date_to: "",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
-    let q = supabase.from("transactions")
-      .select("*, categories(name), allocations(name), profiles(full_name)")
+    let q = supabase
+      .from("transactions")
+      .select("*, categories(name), allocations(name), profiles(full_name), people(name)")
       .eq("is_deleted", false)
       .order("date_time", { ascending: false });
 
     if (filters.type) q = q.eq("type", filters.type);
     if (filters.category_id) q = q.eq("category_id", filters.category_id);
     if (filters.allocation_id) q = q.eq("allocation_id", filters.allocation_id);
+    if (filters.person_id) q = q.eq("person_id", filters.person_id);
     if (filters.date_from) q = q.gte("date_time", filters.date_from);
     if (filters.date_to) q = q.lte("date_time", filters.date_to + "T23:59:59");
     if (filters.search) q = q.ilike("transaction_id", `%${filters.search}%`);
+    if (filters.notes_search) q = q.ilike("notes", `%${filters.notes_search}%`);
 
     const { data } = await q;
     setTransactions(data || []);
@@ -41,12 +53,14 @@ export default function TransactionList() {
   useEffect(() => {
     load();
     async function loadDropdowns() {
-      const [{ data: cats }, { data: allocs }] = await Promise.all([
+      const [{ data: cats }, { data: allocs }, { data: ppl }] = await Promise.all([
         supabase.from("categories").select("id, name").eq("is_active", true).order("name"),
         supabase.from("allocations").select("id, name").eq("is_active", true).order("name"),
+        supabase.from("people").select("id, name").eq("is_active", true).order("name"),
       ]);
       setCategories(cats || []);
       setAllocations(allocs || []);
+      setPeople(ppl || []);
     }
     loadDropdowns();
   }, [load]);
@@ -68,6 +82,7 @@ export default function TransactionList() {
       type: updated.type,
       category_id: updated.category_id,
       allocation_id: updated.allocation_id,
+      person_id: updated.person_id,
       notes: updated.notes,
       reference: updated.reference || null,
       date_time: updated.date_time,
@@ -79,6 +94,10 @@ export default function TransactionList() {
     load();
   }
 
+  function clearFilters() {
+    setFilters({ search: "", notes_search: "", person_id: "", type: "", category_id: "", allocation_id: "", date_from: "", date_to: "" });
+  }
+
   const totalIn = transactions.filter(t => t.type === "cash_in").reduce((s, t) => s + Number(t.amount), 0);
   const totalOut = transactions.filter(t => t.type === "cash_out").reduce((s, t) => s + Number(t.amount), 0);
 
@@ -88,6 +107,12 @@ export default function TransactionList() {
       <div className="filter-bar">
         <input className="filter-search" placeholder="🔍 Search by Transaction ID..."
           value={filters.search} onChange={e => setFilters(p => ({ ...p, search: e.target.value }))} />
+        <input className="filter-search" placeholder="🔍 Search by Notes..."
+          value={filters.notes_search} onChange={e => setFilters(p => ({ ...p, notes_search: e.target.value }))} />
+        <select value={filters.person_id} onChange={e => setFilters(p => ({ ...p, person_id: e.target.value }))}>
+          <option value="">All Payees/Payers</option>
+          {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
         <select value={filters.type} onChange={e => setFilters(p => ({ ...p, type: e.target.value }))}>
           <option value="">All Types</option>
           <option value="cash_in">Cash In</option>
@@ -103,7 +128,7 @@ export default function TransactionList() {
         </select>
         <input type="date" value={filters.date_from} onChange={e => setFilters(p => ({ ...p, date_from: e.target.value }))} />
         <input type="date" value={filters.date_to} onChange={e => setFilters(p => ({ ...p, date_to: e.target.value }))} />
-        <button className="btn-secondary" onClick={() => setFilters({ search: "", type: "", category_id: "", allocation_id: "", date_from: "", date_to: "" })}>Clear</button>
+        <button className="btn-secondary" onClick={clearFilters}>Clear</button>
       </div>
 
       {/* Summary strip */}
@@ -123,17 +148,18 @@ export default function TransactionList() {
                 <th>Date & Time</th>
                 <th>Type</th>
                 <th>Amount</th>
+                <th>Payee / Payer</th>
                 <th>Category</th>
                 <th>Allocation</th>
-                <th>By</th>
                 <th>Notes</th>
                 <th>Ref</th>
+                <th>Encoded By</th>
                 {isAdmin && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {transactions.length === 0 && (
-                <tr><td colSpan={10} className="empty-row">No transactions found</td></tr>
+                <tr><td colSpan={11} className="empty-row">No transactions found</td></tr>
               )}
               {transactions.map(t => (
                 <tr key={t.id}>
@@ -141,15 +167,16 @@ export default function TransactionList() {
                   <td className="date-cell">{new Date(t.date_time).toLocaleString("en-PH")}</td>
                   <td><span className={`type-badge ${t.type === "cash_in" ? "badge-in" : "badge-out"}`}>{t.type === "cash_in" ? "Cash In" : "Cash Out"}</span></td>
                   <td className={t.type === "cash_in" ? "amount-in" : "amount-out"}>{t.type === "cash_out" ? "-" : "+"}{fmt(t.amount)}</td>
+                  <td><strong>{t.people?.name || <span className="muted">—</span>}</strong></td>
                   <td>{t.categories?.name}</td>
                   <td>{t.allocations?.name}</td>
-                  <td>{t.profiles?.full_name}</td>
                   <td className="notes-cell" title={t.notes}>{t.notes.length > 30 ? t.notes.slice(0, 30) + "…" : t.notes}</td>
                   <td>{t.reference || <span className="muted">—</span>}</td>
+                  <td className="muted">{t.profiles?.full_name}</td>
                   {isAdmin && (
                     <td>
                       <div className="action-btns">
-                        <button className="action-edit" onClick={() => setEditModal({ ...t, category_id: t.category_id, allocation_id: t.allocation_id })}>✏️</button>
+                        <button className="action-edit" onClick={() => setEditModal({ ...t, category_id: t.category_id, allocation_id: t.allocation_id, person_id: t.person_id })}>✏️</button>
                         <button className="action-delete" onClick={() => setDeleteConfirm(t)}>🗑️</button>
                       </div>
                     </td>
@@ -161,7 +188,6 @@ export default function TransactionList() {
         </div>
       )}
 
-      {/* Delete confirm modal */}
       {deleteConfirm && (
         <Modal onClose={() => setDeleteConfirm(null)}>
           <div className="modal-danger">
@@ -175,8 +201,7 @@ export default function TransactionList() {
         </Modal>
       )}
 
-      {/* Edit modal (admin only) */}
-      {editModal && <EditModal txn={editModal} categories={categories} allocations={allocations} onClose={() => setEditModal(null)} onSave={handleEdit} />}
+      {editModal && <EditModal txn={editModal} categories={categories} allocations={allocations} people={people} onClose={() => setEditModal(null)} onSave={handleEdit} />}
     </div>
   );
 }
@@ -189,7 +214,7 @@ function Modal({ children, onClose }) {
   );
 }
 
-function EditModal({ txn, categories, allocations, onClose, onSave }) {
+function EditModal({ txn, categories, allocations, people, onClose, onSave }) {
   const [form, setForm] = useState({
     ...txn,
     date_time: new Date(txn.date_time).toISOString().slice(0, 16),
@@ -232,6 +257,13 @@ function EditModal({ txn, categories, allocations, onClose, onSave }) {
             <label>Amount</label>
             <input type="number" min="0.01" step="0.01" value={form.amount} onChange={e => set("amount", e.target.value)} className={errors.amount ? "input-error" : ""} />
             {errors.amount && <span className="field-error">{errors.amount}</span>}
+          </div>
+          <div className="field-group">
+            <label>Payee / Payer</label>
+            <select value={form.person_id || ""} onChange={e => set("person_id", e.target.value)}>
+              <option value="">Select person...</option>
+              {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
           </div>
           <div className="field-group">
             <label>Category</label>
