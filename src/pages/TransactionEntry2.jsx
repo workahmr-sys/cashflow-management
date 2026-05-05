@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { useNotifications } from "../contexts/NotificationContext";
 import { logAudit } from "../lib/audit";
+import { sendTelegramMessage, buildTransactionMessage } from "../lib/telegram";
 
 const EMPTY_FORM = { amount: "", type: "", category_id: "", allocation_id: "", person_id: "", notes: "", reference: "" };
 
@@ -79,11 +80,24 @@ export default function TransactionEntry({ navigate }) {
         reference: form.reference.trim() || null,
       };
 
-      const { data, error } = await supabase.from("transactions").insert(payload).select("*, categories(name), allocations(name), people(name)").single();
+      const { data, error } = await supabase
+        .from("transactions")
+        .insert(payload)
+        .select("*, categories(name), allocations(name), people(name)")
+        .single();
+
       if (error) throw error;
 
-      await logAudit({ userId: user.id, action: "create", entityId: data.id, transactionRef: data.transaction_id, afterValues: payload });
+      // Audit log
+      await logAudit({
+        userId: user.id,
+        action: "create",
+        entityId: data.id,
+        transactionRef: data.transaction_id,
+        afterValues: payload,
+      });
 
+      // In-app notification
       await createNotification({
         title: "Transaction Created",
         message: `${data.transaction_id} — ${data.type === "cash_in" ? "Cash In" : "Cash Out"} ₱${Number(data.amount).toLocaleString()} by ${profile?.full_name}`,
@@ -91,6 +105,18 @@ export default function TransactionEntry({ navigate }) {
         roleTarget: "all",
         relatedTransactionId: data.id,
       });
+
+      // Telegram notification (non-blocking)
+      sendTelegramMessage(buildTransactionMessage({
+        transactionId: data.transaction_id,
+        type: data.type,
+        amount: data.amount,
+        personName: data.people?.name,
+        allocation: data.allocations?.name,
+        category: data.categories?.name,
+        notes: data.notes,
+        dateTime: data.date_time || new Date().toISOString(),
+      }));
 
       setSuccess(data.transaction_id);
       setForm(EMPTY_FORM);
@@ -222,7 +248,7 @@ export default function TransactionEntry({ navigate }) {
                 value={form.reference} onChange={e => set("reference", e.target.value)} />
             </div>
 
-            {/* Person Responsible (read-only) */}
+            {/* Encoded By (read-only) */}
             <div className="field-group">
               <label>Encoded By</label>
               <input type="text" value={profile?.full_name || "Loading..."} disabled className="input-readonly" />
