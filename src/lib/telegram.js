@@ -1,17 +1,28 @@
 import { supabase } from "./supabase";
 
+async function getSettings() {
+  const { data } = await supabase.from("system_settings").select("key, value");
+  if (!data) return null;
+  const map = {};
+  data.forEach(row => { map[row.key] = row.value; });
+  return map;
+}
+
 export async function sendTelegramMessage(message) {
   try {
-    const { data: tokenRow } = await supabase.from("system_settings").select("value").eq("key", "telegram_bot_token").single();
-    const { data: chatRow } = await supabase.from("system_settings").select("value").eq("key", "telegram_chat_id").single();
-    const { data: enabledRow } = await supabase.from("system_settings").select("value").eq("key", "telegram_enabled").single();
+    const settings = await getSettings();
+    if (!settings) return { success: false, reason: "Could not load settings" };
+    if (settings.telegram_enabled !== "true") return { success: false, reason: "Telegram not enabled" };
+    if (!settings.telegram_bot_token || !settings.telegram_chat_id) return { success: false, reason: "Telegram not configured" };
 
-    if (enabledRow?.value !== "true" || !tokenRow?.value || !chatRow?.value) return { success: false, reason: "Telegram not configured" };
-
-    const res = await fetch(`https://api.telegram.org/bot${tokenRow.value}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatRow.value, text: message, parse_mode: "HTML" }),
+      body: JSON.stringify({
+        chat_id: settings.telegram_chat_id,
+        text: message,
+        parse_mode: "HTML",
+      }),
     });
 
     const result = await res.json();
@@ -22,24 +33,41 @@ export async function sendTelegramMessage(message) {
   }
 }
 
-export function buildDailySummaryMessage({ date, cashIn, cashOut, netBalance, breakdown }) {
+export function buildTransactionMessage({ transactionId, type, amount, personName, allocation, category, notes, dateTime }) {
   const fmt = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-  const sign = netBalance >= 0 ? "+" : "";
-  let msg = `📊 <b>DAILY SUMMARY REPORT</b>\n`;
-  msg += `📅 Date: ${date}\n\n`;
-  msg += `💚 Cash In: ${fmt(cashIn)}\n`;
-  msg += `❤️ Cash Out: ${fmt(cashOut)}\n`;
-  msg += `━━━━━━━━━━━━━━\n`;
-  msg += `💰 Net Balance: ${sign}${fmt(netBalance)}\n\n`;
+  const date = new Date(dateTime).toLocaleString("en-PH", {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true
+  });
+  const typeIcon = type === "cash_in" ? "💚 Cash In" : "❤️ Cash Out";
 
-  if (breakdown && Object.keys(breakdown).length > 0) {
-    msg += `📂 <b>By Allocation:</b>\n`;
-    Object.entries(breakdown).forEach(([name, data]) => {
-      msg += `  • ${name}: In ${fmt(data.in)} / Out ${fmt(data.out)}\n`;
-    });
-    msg += `\n`;
-  }
+  return `✅ <b>New Transaction</b>
 
-  msg += `✅ Status: Completed`;
-  return msg;
+🆔 ${transactionId}
+📅 ${date}
+${typeIcon} — <b>${fmt(amount)}</b>
+
+👤 ${personName || "—"}
+🗂️ Allocation: ${allocation || "—"}
+🏷️ Category: ${category || "—"}
+📝 ${notes}`;
+}
+
+export function buildDailySummaryMessage({ date, cashIn, cashOut, netBalance, count }) {
+  const fmt = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+  const sign = netBalance >= 0 ? "" : "";
+  const netIcon = netBalance >= 0 ? "💰" : "📉";
+
+  const d = new Date(date).toLocaleDateString("en-PH", {
+    month: "long", day: "numeric", year: "numeric"
+  });
+
+  return `📅 ${d}
+
+💚 Cash In:   ${fmt(cashIn)}
+❤️ Cash Out:  ${fmt(cashOut)}
+─────────────────────
+${netIcon} Net:       ${fmt(netBalance)}
+
+📦 Transactions: ${count}`;
 }
