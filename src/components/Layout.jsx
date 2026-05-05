@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { id: "users", label: "Users", icon: "👥", roles: ["admin"] },
   { id: "allocations", label: "Allocations", icon: "🗂️", roles: ["admin"] },
   { id: "categories", label: "Categories", icon: "🏷️", roles: ["admin"] },
+  { id: "people", label: "People", icon: "👤", roles: ["admin"] },
   { id: "settings", label: "Settings", icon: "⚙️", roles: ["admin"] },
 ];
 
@@ -31,10 +32,8 @@ export default function Layout({ children, currentPage, navigate }) {
 
   return (
     <div className="layout">
-      {/* Mobile overlay */}
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
 
-      {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-header">
           <div className="logo">
@@ -72,7 +71,6 @@ export default function Layout({ children, currentPage, navigate }) {
         </button>
       </aside>
 
-      {/* Main content */}
       <div className="main-content">
         <header className="topbar">
           <button className="menu-btn" onClick={() => setSidebarOpen(true)}>☰</button>
