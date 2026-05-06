@@ -1,34 +1,44 @@
 import { supabase } from "./supabase";
 
-async function getSettings() {
-  const { data } = await supabase.from("system_settings").select("key, value");
-  if (!data) return null;
-  const map = {};
-  data.forEach(row => { map[row.key] = row.value; });
-  return map;
-}
-
 export async function sendTelegramMessage(message) {
   try {
-    const settings = await getSettings();
-    if (!settings) return { success: false, reason: "Could not load settings" };
-    if (settings.telegram_enabled !== "true") return { success: false, reason: "Telegram not enabled" };
-    if (!settings.telegram_bot_token || !settings.telegram_chat_id) return { success: false, reason: "Telegram not configured" };
+    const { data, error } = await supabase
+      .from("system_settings")
+      .select("key, value");
 
-    const res = await fetch(`https://api.telegram.org/bot${settings.telegram_bot_token}/sendMessage`, {
+    if (error || !data) {
+      console.error("Could not load telegram settings:", error);
+      return { success: false, reason: "Could not load settings" };
+    }
+
+    const settings = {};
+    data.forEach(row => { settings[row.key] = row.value; });
+
+    if (settings.telegram_enabled !== "true") {
+      return { success: false, reason: "Telegram not enabled" };
+    }
+
+    if (!settings.telegram_bot_token || !settings.telegram_chat_id) {
+      return { success: false, reason: "Telegram not configured" };
+    }
+
+    const token = settings.telegram_bot_token.trim();
+    const chatId = settings.telegram_chat_id.trim();
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: settings.telegram_chat_id,
+        chat_id: chatId,
         text: message,
         parse_mode: "HTML",
       }),
     });
 
     const result = await res.json();
-    return { success: result.ok, data: result };
+    return { success: result.ok, data: result, error: result.description };
   } catch (err) {
-    console.error("Telegram send failed (non-blocking):", err);
+    console.error("Telegram send failed:", err);
     return { success: false, error: err.message };
   }
 }
@@ -37,7 +47,7 @@ export function buildTransactionMessage({ transactionId, type, amount, personNam
   const fmt = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
   const date = new Date(dateTime).toLocaleString("en-PH", {
     month: "short", day: "numeric", year: "numeric",
-    hour: "numeric", minute: "2-digit", hour12: true
+    hour: "numeric", minute: "2-digit", hour12: true,
   });
   const typeIcon = type === "cash_in" ? "💚 Cash In" : "❤️ Cash Out";
 
@@ -53,21 +63,20 @@ ${typeIcon} — <b>${fmt(amount)}</b>
 📝 ${notes}`;
 }
 
-export function buildDailySummaryMessage({ date, cashIn, cashOut, netBalance, count }) {
-  const fmt = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-  const sign = netBalance >= 0 ? "" : "";
-  const netIcon = netBalance >= 0 ? "💰" : "📉";
-
+export function buildDailySummaryMessage({ date, openingBalance, cashIn, cashOut, endingBalance, count }) {
+  const fmt = (n) => `₱${Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+  const netIcon = endingBalance >= openingBalance ? "💰" : "📉";
   const d = new Date(date).toLocaleDateString("en-PH", {
-    month: "long", day: "numeric", year: "numeric"
+    month: "long", day: "numeric", year: "numeric",
   });
 
   return `📅 ${d}
 
-💚 Cash In:   ${fmt(cashIn)}
-❤️ Cash Out:  ${fmt(cashOut)}
-─────────────────────
-${netIcon} Net:       ${fmt(netBalance)}
+💰 Opening Balance:  ${fmt(openingBalance)}
+💚 Cash In:          ${fmt(cashIn)}
+❤️ Cash Out:         ${fmt(cashOut)}
+─────────────────────────────
+${netIcon} Ending Balance:  ${fmt(endingBalance)}
 
 📦 Transactions: ${count}`;
 }
