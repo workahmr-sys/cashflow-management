@@ -22,7 +22,7 @@ export default function Dashboard({ navigate }) {
         .from("transactions")
         .select("amount, type, transaction_id, date_time, categories(name), allocations(name)")
         .eq("is_deleted", false)
-        .order("date_time", { ascending: false });
+        .order("transaction_id", { ascending: false });
 
       if (txns) {
         const cashIn = txns.filter(t => t.type === "cash_in").reduce((s, t) => s + Number(t.amount), 0);
