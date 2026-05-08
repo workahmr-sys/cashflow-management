@@ -34,7 +34,7 @@ export default function TransactionList() {
       .from("transactions")
       .select("*, categories(name), allocations(name), profiles!transactions_person_responsible_id_fkey(full_name), people(name)")
       .eq("is_deleted", false)
-      .order("date_time", { ascending: false });
+      .order("transaction_id", { ascending: false });
 
     if (filters.type) q = q.eq("type", filters.type);
     if (filters.category_id) q = q.eq("category_id", filters.category_id);
